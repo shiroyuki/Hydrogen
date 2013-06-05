@@ -19,25 +19,31 @@ abstract class Cryptographer
         return sprintf('%s/%s', get_class($object), spl_object_hash($object));
     }
 
+    protected function makeReference($object)
+    {
+        return sprintf('ref://%s', $this->makeGuid($object));
+    }
+
+    abstract public function encode($object);
+    abstract protected function encodeObject($object, array &$objectMap = array(), $depth = 0);
+    abstract protected function encodeProperty(\ReflectionProperty $reflector, $object, array &$objectMap, $depth);
+}
+
+class NestedCryptographer extends Cryptographer
+{
     public function encode($object)
     {
         return $this->encodeObject($object);
     }
 
-    abstract protected function encodeObject($object, array $objectMap = array(), $depth);
-    abstract protected function encodeProperty(\ReflectionProperty $reflector, $object, array $objectMap, $depth);
-}
-
-class NestedCryptographer extends Cryptographer
-{
-    protected function encodeObject($object, array $objectMap = array(), $depth)
+    protected function encodeObject($object, array &$objectMap = array(), $depth = 0)
     {
         $objectGuid = $this->makeGuid($object);
-        
+
         if (in_array($objectGuid, array_keys($objectMap))) {
-            return sprintf('ref://%s', $objectGuid);
+            return $this->makeReference($object);
         }
-        
+
         $className = get_class($object);
         $reflector = new \ReflectionClass($className);
 
@@ -56,7 +62,7 @@ class NestedCryptographer extends Cryptographer
         return $propertyToValueMap;
     }
 
-    protected function encodeProperty(\ReflectionProperty $reflector, $object, array $objectMap, $depth)
+    protected function encodeProperty(\ReflectionProperty $reflector, $object, array &$objectMap, $depth)
     {
         $reflector->setAccessible(true);
 
@@ -66,6 +72,7 @@ class NestedCryptographer extends Cryptographer
         if (is_object($rawValue)) {
             return $this->encodeObject($rawValue, $objectMap, $depth);
         }
+
         if ( ! $isTraversable) {
             return $rawValue;
         }
@@ -78,7 +85,81 @@ class NestedCryptographer extends Cryptographer
 
         return $value;
     }
-    
+}
+
+class MappedCryptographer extends Cryptographer
+{
+    public function encode($object)
+    {
+        $objectMap = array();
+
+        $this->encodeObject($object, $objectMap);
+
+        return array_values($objectMap);
+    }
+
+    protected function encodeObject($object, array &$objectMap = array(), $depth = 0)
+    {
+        $objectGuid = $this->makeGuid($object);
+
+        if (in_array($objectGuid, array_keys($objectMap))) {
+            return $this->makeReference($object);
+        }
+
+        $className = get_class($object);
+        $reflector = new \ReflectionClass($className);
+
+        $propertyToValueMap = array(
+            'guid'  => $this->makeReference($object),
+            'class' => $className,
+        );
+
+        $objectMap[$objectGuid] = $propertyToValueMap;
+
+        foreach ($reflector->getProperties() as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+
+            $propertyToValueMap[$property->getName()] = $this->encodeProperty($property, $object, $objectMap, $depth + 1);
+        }
+
+        $objectMap[$objectGuid] = $propertyToValueMap;
+    }
+
+    protected function encodeProperty(\ReflectionProperty $reflector, $object, array &$objectMap, $depth)
+    {
+        $reflector->setAccessible(true);
+
+        $rawValue      = $reflector->getValue($object);
+        $isTraversable = is_array($rawValue) || $rawValue instanceof \Traversable;
+
+        if (is_object($rawValue)) {
+            $this->encodeObject($rawValue, $objectMap, $depth);
+
+            return $this->makeReference($rawValue);
+        }
+
+        if ( ! $isTraversable) {
+            return $rawValue;
+        }
+
+        $value = array();
+
+        foreach ($rawValue as $k => $v) {
+            if ( ! is_object($v)) {
+                $value[$k] = $v;
+
+                continue;
+            }
+
+            $this->encodeObject($v, $objectMap, $depth);
+
+            $value[$k] = $this->makeReference($v);
+        }
+
+        return $value;
+    }
 }
 
 class Person // testing class
@@ -97,7 +178,8 @@ class Person // testing class
     }
 }
 
-$serializer = new NestedCryptographer();
+$nc = new NestedCryptographer();
+$mc = new MappedCryptographer();
 
 $mary = new Person('Mary', null);
 $dave = new Person('Dave', $mary);
@@ -105,6 +187,14 @@ $hahn = new Person('Hahn', null, array($mary, $dave));
 
 $mary->buddy = $dave;
 
-$dataMap = $serializer->encode($hahn);
+$dataMap = $nc->encode($hahn);
+
+print "\nNested Version\n";
+
+var_dump($dataMap);
+
+$dataMap = $mc->encode($hahn);
+
+print "\nMapped Version\n";
 
 var_dump($dataMap);
