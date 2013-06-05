@@ -24,6 +24,12 @@ abstract class Cryptographer
         return $this->encodeObject($object, $objectMap, $depth);
     }
 
+    abstract protected function encodeObject($object, array $objectMap = array(), $depth);
+    abstract protected function encodeProperty(\ReflectionProperty $reflector, $object, array $objectMap, $depth);
+}
+
+class NestedCryptographer extends Cryptographer
+{
     protected function encodeObject($object, array $objectMap = array(), $depth)
     {
         $objectGuid = $this->makeGuid($object);
@@ -72,20 +78,7 @@ abstract class Cryptographer
 
         return $value;
     }
-}
-
-class NestedCryptographer extends Cryptographer
-{
-    public function encode($object, $objectMap = array(), $depth = 0)
-    {
-        $objectGuid = $this->makeGuid($object);
-
-        if (in_array($objectGuid, array_keys($objectMap))) {
-            return sprintf('ref://%s', $objectGuid);
-        }
-
-        return $this->encodeObject($object, $objectMap, $depth);
-    }
+    
 }
 
 class Person // testing class
