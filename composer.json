@@ -1,0 +1,15 @@
+{
+    "name": "shiroyuki/hydrogen",
+    "description": "Lightweight Object Serializer",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Juti Noppornpitak",
+            "email": "jnopporn@shiroyuki.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {
+
+    }
+}
