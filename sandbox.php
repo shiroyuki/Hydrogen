@@ -21,7 +21,7 @@ abstract class Cryptographer
 
     public function encode($object)
     {
-        return $this->encodeObject($object, $objectMap, $depth);
+        return $this->encodeObject($object);
     }
 
     abstract protected function encodeObject($object, array $objectMap = array(), $depth);
