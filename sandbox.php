@@ -3,198 +3,65 @@
  * Development Sandbox
  */
 
-namespace Shiroyuki\Hydrogen\Sandbox;
+include 'autoload.php';
+include 'vendor/autoload.php';
 
-abstract class Cryptographer
-{
-    protected $maxDepth = 0; // unlimited
-
-    final public function setMaxDepth($maxDepth)
-    {
-        $this->maxDepth = $maxDepth;
-    }
-
-    protected function makeGuid($object)
-    {
-        return sprintf('%s/%s', get_class($object), spl_object_hash($object));
-    }
-
-    protected function makeReference($object)
-    {
-        return sprintf('ref://%s', $this->makeGuid($object));
-    }
-
-    abstract public function encode($object);
-    abstract protected function encodeObject($object, array &$objectMap = array(), $depth = 0);
-    abstract protected function encodeProperty(\ReflectionProperty $reflector, $object, array &$objectMap, $depth);
-}
-
-class NestedCryptographer extends Cryptographer
-{
-    public function encode($object)
-    {
-        return $this->encodeObject($object);
-    }
-
-    protected function encodeObject($object, array &$objectMap = array(), $depth = 0)
-    {
-        $objectGuid = $this->makeGuid($object);
-
-        if (in_array($objectGuid, array_keys($objectMap))) {
-            return $this->makeReference($object);
-        }
-
-        $className = get_class($object);
-        $reflector = new \ReflectionClass($className);
-
-        $propertyToValueMap = array();
-
-        $objectMap[$objectGuid] = $propertyToValueMap;
-
-        foreach ($reflector->getProperties() as $property) {
-            if ($property->isStatic()) {
-                continue;
-            }
-
-            $propertyToValueMap[$property->getName()] = $this->encodeProperty($property, $object, $objectMap, $depth + 1);
-        }
-
-        return $propertyToValueMap;
-    }
-
-    protected function encodeProperty(\ReflectionProperty $reflector, $object, array &$objectMap, $depth)
-    {
-        $reflector->setAccessible(true);
-
-        $rawValue      = $reflector->getValue($object);
-        $isTraversable = is_array($rawValue) || $rawValue instanceof \Traversable;
-
-        if (is_object($rawValue)) {
-            return $this->encodeObject($rawValue, $objectMap, $depth);
-        }
-
-        if ( ! $isTraversable) {
-            return $rawValue;
-        }
-
-        $value = array();
-
-        foreach ($rawValue as $k => $v) {
-            $value[$k] = is_object($v) ? $this->encode($v) : $v;
-        }
-
-        return $value;
-    }
-}
-
-class MappedCryptographer extends Cryptographer
-{
-    public function encode($object)
-    {
-        $objectMap = array();
-
-        $this->encodeObject($object, $objectMap);
-
-        return array_values($objectMap);
-    }
-
-    protected function encodeObject($object, array &$objectMap = array(), $depth = 0)
-    {
-        $objectGuid = $this->makeGuid($object);
-
-        if (in_array($objectGuid, array_keys($objectMap))) {
-            return $this->makeReference($object);
-        }
-
-        $className = get_class($object);
-        $reflector = new \ReflectionClass($className);
-
-        $propertyToValueMap = array(
-            'guid'  => $this->makeReference($object),
-            'class' => $className,
-        );
-
-        $objectMap[$objectGuid] = $propertyToValueMap;
-
-        foreach ($reflector->getProperties() as $property) {
-            if ($property->isStatic()) {
-                continue;
-            }
-
-            $propertyToValueMap[$property->getName()] = $this->encodeProperty($property, $object, $objectMap, $depth + 1);
-        }
-
-        $objectMap[$objectGuid] = $propertyToValueMap;
-    }
-
-    protected function encodeProperty(\ReflectionProperty $reflector, $object, array &$objectMap, $depth)
-    {
-        $reflector->setAccessible(true);
-
-        $rawValue      = $reflector->getValue($object);
-        $isTraversable = is_array($rawValue) || $rawValue instanceof \Traversable;
-
-        if (is_object($rawValue)) {
-            $this->encodeObject($rawValue, $objectMap, $depth);
-
-            return $this->makeReference($rawValue);
-        }
-
-        if ( ! $isTraversable) {
-            return $rawValue;
-        }
-
-        $value = array();
-
-        foreach ($rawValue as $k => $v) {
-            if ( ! is_object($v)) {
-                $value[$k] = $v;
-
-                continue;
-            }
-
-            $this->encodeObject($v, $objectMap, $depth);
-
-            $value[$k] = $this->makeReference($v);
-        }
-
-        return $value;
-    }
-}
+use Shiroyuki\Hydrogen\Accessor;
+use Shiroyuki\Hydrogen\NestedCryptographer;
 
 class Person // testing class
 {
+    static protected $nextId = 1;
     static public $handler = 'Ghost';
 
-    public $name;
-    public $buddy;
-    protected $links;
+    private $id;
+    private $name;
+    private $buddy;
+    private $links;
+    public $collection;
 
     public function __construct($name, $buddy = null, $links = array())
     {
+        $this->id    = Person::$nextId++;
         $this->name  = $name;
         $this->buddy = $buddy;
         $this->links = $links;
+        $this->collection = new \Doctrine\Common\Collections\ArrayCollection();
+    }
+
+    public function setBuddy(Person $buddy)
+    {
+        $this->buddy = $buddy;
+    }
+
+    public function getId()
+    {
+        return $this->id;
     }
 }
 
 $nc = new NestedCryptographer();
-$mc = new MappedCryptographer();
 
 $mary = new Person('Mary', null);
 $dave = new Person('Dave', $mary);
 $hahn = new Person('Hahn', null, array($mary, $dave));
 
-$mary->buddy = $dave;
+$mary->setBuddy($dave);
+$mary->collection->set('profession', 'journalist');
+$mary->collection->set('native language', 'japanese');
 
-$dataMap = $nc->encode($hahn);
+$hahnDataMap = $nc->encode($hahn);
+$maryDataMap = $nc->encode($mary);
 
-print "\nNested Version\n";
+print "\n[Nested Version]\n\n";
 
-var_dump($dataMap);
+var_dump($hahnDataMap, $maryDataMap);
 
-$dataMap = $mc->encode($hahn);
+print "\n[Accessor]\n\n";
 
-print "\nMapped Version\n";
+$ac = new Accessor();
 
-var_dump($dataMap);
+printf("buddy/name                 => [%s]\n", $ac->get($maryDataMap, 'buddy/name'));
+printf("collection/native language => [%s]\n", $ac->get($maryDataMap, 'collection/native language'));
+printf("collection.native language => [%s]\n", $ac->get($maryDataMap, 'collection.native language', '.'));
+printf("links/0/name               => [%s]\n", $ac->get($hahnDataMap, 'links/0/name'));

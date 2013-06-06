@@ -10,6 +10,7 @@
     ],
     "minimum-stability": "dev",
     "require": {
-
-    }
+        "doctrine/common": "2.4.*@dev"
+    },
+    "require-dev": {}
 }
